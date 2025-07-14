@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rekapitulasi Nilai Akhir Santri</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- SheetJS Library for Excel Export -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #111827; /* bg-gray-900 */
+            color: #d1d5db; /* text-gray-300 */
+        }
+
+        .card {
+            background-color: #1f2937; /* bg-gray-800 */
+            border: 1px solid #374151; /* border-gray-700 */
+            border-radius: 0.75rem; /* rounded-xl */
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+        }
+
+        .table-wrapper {
+            overflow-x: auto;
+            max-width: 100%;
+        }
+
+        .rekap-table {
+            width: 100%;
+            border-collapse: collapse;
+            white-space: nowrap;
+            font-size: 0.875rem;
+        }
+
+        .rekap-table th, .rekap-table td {
+            padding: 0.75rem 1rem;
+            text-align: left;
+            border-bottom: 1px solid #374151;
+        }
+
+        .rekap-table th {
+            background-color: #374151;
+            font-weight: 600;
+            color: #f9fafb;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        
+        .rekap-table tbody tr:hover {
+            background-color: #2b3546;
+        }
+
+        .form-select, .form-input {
+            background-color: #374151;
+            border: 1px solid #4b5563;
+            color: #f9fafb;
+            border-radius: 0.5rem;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        .form-select, .form-input {
+             padding: 0.625rem 1rem;
+             width: 100%;
+        }
+        .form-input:focus, .form-select:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 2px #1f2937, 0 0 0 4px #3b82f6;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.625rem 1rem;
+            border-radius: 0.5rem;
+            font-weight: 600;
+            transition: all 0.2s ease-in-out;
+            cursor: pointer;
+            border: 1px solid transparent;
+        }
+        .btn-primary {
+            background-color: #3b82f6;
+            color: white;
+        }
+        .btn-primary:hover:not(:disabled) {
+            background-color: #2563eb;
+        }
+        .btn-primary:disabled {
+            background-color: #374151;
+            cursor: not-allowed;
+            opacity: 0.7;
+        }
+        
+        .btn-secondary {
+            background-color: #374151;
+            color: #d1d5db;
+        }
+        .btn-secondary:hover {
+            background-color: #4b5563;
+        }
+
+        .class-filter-btn.active {
+            background-color: #3b82f6;
+            color: white;
+        }
+
+        .skeleton-row {
+            background-color: #374151;
+            border-radius: 0.5rem;
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+            height: 49px; /* Match table row height */
+            margin-bottom: 8px;
+        }
+        @keyframes pulse {
+            50% {
+                opacity: .5;
+            }
+        }
+        
+        .toast {
+            position: fixed;
+            bottom: 1.25rem;
+            right: 1.25rem;
+            color: white;
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.5rem;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            transform: translateX(120%);
+            transition: transform 0.3s ease-in-out;
+            z-index: 100;
+        }
+        .toast.show {
+            transform: translateX(0);
+        }
+    </style>
+</head>
+<body class="p-4 sm:p-6 lg:p-8">
+
+    <div class="max-w-7xl mx-auto">
+        <!-- Header -->
+        <header class="flex flex-col sm:flex-row justify-between sm:items-center mb-4 gap-4">
+            <div class="flex items-center gap-3">
+                <div class="bg-blue-600 p-2 rounded-lg">
+                    <i data-lucide="bar-chart-3" class="w-6 h-6 text-white"></i>
+                </div>
+                <h1 class="text-2xl font-bold text-white">Rekapitulasi Nilai Akhir Santri</h1>
+            </div>
+            <div class="flex items-center gap-4">
+                <!-- Filter Options -->
+                <select id="filterType" class="form-select w-full sm:w-auto">
+                    <option value="month">Per Bulan</option>
+                    <option value="range">Rentang Waktu</option>
+                </select>
+
+                <!-- Month Filter -->
+                <select id="monthFilter" class="form-select w-full sm:w-48"></select>
+                
+                <!-- Date Range Filters (hidden by default) -->
+                <input type="date" id="startDateFilter" class="form-input w-full sm:w-48 hidden">
+                <input type="date" id="endDateFilter" class="form-input w-full sm:w-48 hidden">
+
+                <button id="exportBtn" class="btn btn-primary" disabled>
+                    <i data-lucide="download" class="w-4 h-4 mr-2"></i>
+                    <span>Ekspor</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- Class Filter Buttons -->
+        <div id="classFilterContainer" class="flex flex-wrap items-center gap-2 mb-4">
+            <!-- Tombol filter kelas akan dimasukkan di sini oleh JavaScript -->
+        </div>
+
+        <!-- Table Card -->
+        <div class="card">
+            <div class="table-wrapper">
+                <div id="rekapLoader" class="p-4">
+                    <div class="skeleton-row"></div>
+                    <div class="skeleton-row"></div>
+                    <div class="skeleton-row"></div>
+                    <div class="skeleton-row"></div>
+                    <div class="skeleton-row"></div>
+                </div>
+                <table id="rekapTable" class="rekap-table hidden">
+                    <thead>
+                        <tr>
+                            <th>No</th>
+                            <th>Nama Santri</th>
+                            <th>Kelas</th>
+                            <th>Nama Pembimbing</th>
+                            <th>Nilai Itqon</th>
+                            <th>Nilai Tajwid</th>
+                        </tr>
+                    </thead>
+                    <tbody id="rekapTableBody">
+                        <!-- Rows will be injected by JavaScript -->
+                    </tbody>
+                </table>
+                 <div id="emptyState" class="hidden text-center py-16">
+                    <i data-lucide="folder-search" class="w-16 h-16 mx-auto text-gray-500"></i>
+                    <p class="mt-4 text-lg font-semibold">Tidak Ada Data</p>
+                    <p class="text-gray-400">Tidak ada data yang ditemukan untuk filter yang dipilih.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast">
+        <p id="toastMessage"></p>
+    </div>
+
+    <script type="module">
+        // --- Firebase SDK Imports ---
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, onSnapshot, query, where, doc, Timestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- Utility Functions ---
+        function toLocalDateString(date) {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+
+        function getMonthName(monthIndex) {
+            const months = [
+                "Januari", "Februari", "Maret", "April", "Mei", "Juni",
+                "Juli", "Agustus", "September", "Oktober", "November", "Desember"
+            ];
+            return months[parseInt(monthIndex, 10)];
+        }
+
+        // --- Firebase Configuration ---
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+            apiKey: "AIzaSyBzvOsp5EVnzTI8Kbew9nXSXXLpakBD6Ec",
+            authDomain: "ltq-hn.firebaseapp.com",
+            projectId: "ltq-hn",
+            storageBucket: "ltq-hn.appspot.com",
+            messagingSenderId: "542731528480",
+            appId: "1:542731528480:web:15203f68716ed2e3dacf45"
+        };
+        // Fixed: Use __initial_auth_token directly
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        // --- Initialize Firebase ---
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+
+        // --- Global State ---
+        let currentUserId = null;
+        let unsubscribes = {};
+        let allStudents = [];
+        let allMentors = [];
+        let allHalaqohGroups = [];
+        let allClasses = [];
+        let compiledRecapData = [];
+        let activeClassFilter = 'all';
+
+        // --- DOM Elements ---
+        const dom = {
+            filterType: document.getElementById('filterType'),
+            monthFilter: document.getElementById('monthFilter'),
+            startDateFilter: document.getElementById('startDateFilter'),
+            endDateFilter: document.getElementById('endDateFilter'),
+            exportBtn: document.getElementById('exportBtn'),
+            rekapTable: document.getElementById('rekapTable'),
+            rekapTableBody: document.getElementById('rekapTableBody'),
+            rekapLoader: document.getElementById('rekapLoader'),
+            emptyState: document.getElementById('emptyState'),
+            classFilterContainer: document.getElementById('classFilterContainer'),
+            toast: document.getElementById('toast'),
+            toastMessage: document.getElementById('toastMessage'),
+        };
+
+        // --- Authentication ---
+        onAuthStateChanged(auth, async (user) => {
+            if (user) {
+                currentUserId = user.uid;
+                preloadData();
+            } else {
+                try {
+                    await (initialAuthToken ? signInWithCustomToken(auth, initialAuthToken) : signInAnonymously(auth));
+                } catch (error) {
+                    console.error("Authentication error:", error);
+                    showToast("Error autentikasi: " + error.message, true);
+                }
+            }
+        });
+
+        // --- Data Fetching and Processing ---
+
+        function preloadData() {
+            const collectionsToLoad = {
+                students: 'students',
+                mentors: 'mentors',
+                halaqohGroups: 'halaqohGroups',
+                classes: 'classes',
+            };
+
+            let dataLoadedCount = 0;
+            const totalCollections = Object.keys(collectionsToLoad).length;
+
+            Object.entries(collectionsToLoad).forEach(([stateKey, collectionName]) => {
+                const q = query(collection(db, 'artifacts', appId, 'public', 'data', collectionName));
+                unsubscribes[stateKey] = onSnapshot(q, (snapshot) => {
+                    const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    if (stateKey === 'students') allStudents = data;
+                    if (stateKey === 'mentors') allMentors = data;
+                    if (stateKey === 'halaqohGroups') allHalaqohGroups = data;
+                    if (stateKey === 'classes') {
+                        allClasses = data;
+                        populateClassFilterButtons();
+                    }
+                    dataLoadedCount++;
+                    if (dataLoadedCount === totalCollections) {
+                        populateMonthFilter();
+                        fetchRecapData(); // Initial fetch
+                    }
+                });
+            });
+        }
+
+        function fetchRecapData() {
+            let startDate, endDate;
+            const filterType = dom.filterType.value;
+
+            if (filterType === 'month') {
+                const [year, month] = dom.monthFilter.value.split('-').map(Number);
+                startDate = new Date(year, month - 1, 1);
+                endDate = new Date(year, month, 0, 23, 59, 59);
+            } else { // 'range'
+                startDate = new Date(dom.startDateFilter.value + 'T00:00:00');
+                endDate = new Date(dom.endDateFilter.value + 'T23:59:59');
+            }
+            
+            dom.rekapTable.classList.add('hidden');
+            dom.emptyState.classList.add('hidden');
+            dom.rekapLoader.style.display = 'block';
+            dom.exportBtn.disabled = true;
+
+            const startTimestamp = Timestamp.fromDate(startDate);
+            const endTimestamp = Timestamp.fromDate(endDate);
+
+            const submissionsRef = collection(db, 'artifacts', appId, 'public', 'data', 'formSubmissions');
+            const q = query(submissionsRef, where('timestamp', '>=', startTimestamp), where('timestamp', '<=', endTimestamp));
+
+            if (unsubscribes.submissions) unsubscribes.submissions();
+            unsubscribes.submissions = onSnapshot(q, (snapshot) => {
+                const submissions = snapshot.docs.map(doc => doc.data());
+                compileData(submissions, startDate, endDate);
+            }, (error) => {
+                console.error("Error fetching submissions:", error);
+                compileData([], startDate, endDate);
+            });
+        }
+
+        function compileData(submissions, periodStartDate, periodEndDate) {
+            compiledRecapData = [];
+
+            for (const student of allStudents) {
+                const studentSubmissions = submissions.filter(s => s.namaSantri1 === student.name || s.namaSantri2 === student.name || s.namaSantri3 === student.name);
+
+                const form1SubmissionsInPeriod = studentSubmissions
+                    .filter(s => s.formType === 'form1' && s.timestamp?.toDate() >= periodStartDate && s.timestamp?.toDate() <= periodEndDate);
+
+                let itqonScores = [];
+                let tajwidScores = [];
+
+                form1SubmissionsInPeriod.forEach(sub => {
+                    if (sub.nilaiItqon1 && !isNaN(parseFloat(sub.nilaiItqon1))) {
+                        itqonScores.push(parseFloat(sub.nilaiItqon1));
+                    }
+                    if (sub.nilaiTajwid1 && !isNaN(parseFloat(sub.nilaiTajwid1))) {
+                        tajwidScores.push(parseFloat(sub.nilaiTajwid1));
+                    }
+                });
+
+                // Calculate average Itqon and Tajwid scores
+                const avgItqon = itqonScores.length > 0 ? (itqonScores.reduce((sum, score) => sum + score, 0) / itqonScores.length).toFixed(2) : '-';
+                const avgTajwid = tajwidScores.length > 0 ? (tajwidScores.reduce((sum, score) => sum + score, 0) / tajwidScores.length).toFixed(2) : '-';
+                
+                const group = allHalaqohGroups.find(g => g.studentIds?.includes(student.id));
+                const mentor = allMentors.find(m => m.id === group?.mentorId);
+
+                compiledRecapData.push({
+                    namaSantri: student.name,
+                    kelas: student.class || '-',
+                    namaPembimbing: mentor?.name || '-',
+                    nilaiItqon: avgItqon,
+                    nilaiTajwid: avgTajwid,
+                });
+            }
+            renderTable();
+        }
+
+        function renderTable() {
+            dom.rekapLoader.style.display = 'none';
+            dom.rekapTableBody.innerHTML = '';
+
+            let dataToRender = compiledRecapData;
+            if (activeClassFilter !== 'all') {
+                dataToRender = compiledRecapData.filter(data => data.kelas === activeClassFilter);
+            }
+
+            if (dataToRender.length === 0) {
+                dom.emptyState.classList.remove('hidden');
+                dom.rekapTable.classList.add('hidden');
+                dom.exportBtn.disabled = true;
+                return;
+            }
+
+            dom.emptyState.classList.add('hidden');
+            dom.rekapTable.classList.remove('hidden');
+            dom.exportBtn.disabled = false;
+
+            dataToRender.sort((a, b) => a.namaSantri.localeCompare(b.namaSantri));
+            
+            dataToRender.forEach((data, index) => {
+                const row = `
+                    <tr>
+                        <td>${index + 1}</td>
+                        <td>${data.namaSantri}</td>
+                        <td>${data.kelas}</td>
+                        <td>${data.namaPembimbing}</td>
+                        <td>${data.nilaiItqon}</td>
+                        <td>${data.nilaiTajwid}</td>
+                    </tr>
+                `;
+                dom.rekapTableBody.innerHTML += row;
+            });
+        }
+
+        // --- UI Helpers and Event Listeners ---
+        function populateMonthFilter() {
+            const months = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+            const now = new Date();
+            dom.monthFilter.innerHTML = '';
+            for (let i = 0; i < 12; i++) {
+                const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+                const year = date.getFullYear();
+                const month = date.getMonth();
+                const option = document.createElement('option');
+                option.value = `${year}-${month + 1}`;
+                option.textContent = `${months[month]} ${year}`;
+                dom.monthFilter.appendChild(option);
+            }
+            // Set default to current month
+            dom.monthFilter.value = `${now.getFullYear()}-${now.getMonth() + 1}`;
+        }
+        
+        function populateClassFilterButtons() {
+            const container = dom.classFilterContainer;
+            container.innerHTML = '';
+
+            const allBtn = document.createElement('button');
+            allBtn.className = 'btn btn-secondary class-filter-btn active';
+            allBtn.textContent = 'Semua Kelas';
+            allBtn.dataset.className = 'all';
+            container.appendChild(allBtn);
+
+            allClasses.sort((a, b) => a.name.localeCompare(b.name)).forEach(cls => {
+                const btn = document.createElement('button');
+                btn.className = 'btn btn-secondary class-filter-btn';
+                btn.textContent = cls.name;
+                btn.dataset.className = cls.name;
+                container.appendChild(btn);
+            });
+        }
+
+        function exportToExcel() {
+            const dataToExport = [...compiledRecapData];
+            if (dataToExport.length === 0) return;
+
+            dataToExport.sort((a, b) => {
+                if (a.kelas < b.kelas) return -1;
+                if (a.kelas > b.kelas) return 1;
+                return a.namaSantri.localeCompare(b.namaSantri);
+            });
+
+            const wb = XLSX.utils.book_new();
+
+            const dataByClass = {};
+            for (const studentData of dataToExport) {
+                const className = studentData.kelas || 'Tanpa Kelas';
+                if (!dataByClass[className]) {
+                    dataByClass[className] = [];
+                }
+                dataByClass[className].push(studentData);
+            }
+
+            const headers = ["No", "Nama Santri", "Kelas", "Nama Pembimbing", "Nilai Itqon", "Nilai Tajwid"];
+            
+            const sortedClasses = Object.keys(dataByClass).sort();
+
+            for (const className of sortedClasses) {
+                const classData = dataByClass[className];
+                
+                const rows = classData.map((d, i) => [
+                    i + 1, d.namaSantri, d.kelas, d.namaPembimbing, d.nilaiItqon, d.nilaiTajwid
+                ]);
+
+                const sheetData = [headers, ...rows];
+                const ws = XLSX.utils.aoa_to_sheet(sheetData);
+                XLSX.utils.book_append_sheet(wb, ws, className);
+            }
+
+            let fileName;
+            const filterType = dom.filterType.value;
+            if (filterType === 'month') {
+                const months = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+                const [year, monthIndex] = dom.monthFilter.value.split('-');
+                const monthName = months[parseInt(monthIndex) - 1];
+                fileName = `Rekap Nilai Santri - ${monthName} ${year}.xlsx`;
+            } else {
+                fileName = `Rekap Nilai Santri - ${dom.startDateFilter.value} s.d ${dom.endDateFilter.value}.xlsx`;
+            }
+
+            XLSX.writeFile(wb, fileName);
+        }
+
+        // --- Toast Notification Function ---
+        function showToast(message, isError = false) {
+            dom.toastMessage.textContent = message;
+            dom.toast.className = `toast ${isError ? 'bg-red-600' : 'bg-green-600'}`;
+            
+            dom.toast.classList.add('show');
+            
+            setTimeout(() => {
+                dom.toast.classList.remove('show');
+            }, 3000);
+        }
+
+
+        // --- Event Listeners ---
+        dom.filterType.addEventListener('change', () => {
+            if (dom.filterType.value === 'month') {
+                dom.monthFilter.classList.remove('hidden');
+                dom.startDateFilter.classList.add('hidden');
+                dom.endDateFilter.classList.add('hidden');
+            } else {
+                dom.monthFilter.classList.add('hidden');
+                dom.startDateFilter.classList.remove('hidden');
+                dom.endDateFilter.classList.remove('hidden');
+            }
+            fetchRecapData(); // Re-fetch data based on new filter type
+        });
+
+        dom.monthFilter.addEventListener('change', fetchRecapData);
+        dom.startDateFilter.addEventListener('change', fetchRecapData);
+        dom.endDateFilter.addEventListener('change', fetchRecapData);
+        dom.exportBtn.addEventListener('click', exportToExcel);
+        dom.classFilterContainer.addEventListener('click', (e) => {
+            const target = e.target.closest('.class-filter-btn');
+            if (!target) return;
+
+            dom.classFilterContainer.querySelectorAll('.class-filter-btn').forEach(btn => btn.classList.remove('active'));
+            target.classList.add('active');
+
+            activeClassFilter = target.dataset.className;
+            renderTable();
+        });
+
+        // --- Initial Setup ---
+        function initializePage() {
+            lucide.createIcons();
+            // Set default date range to last 30 days
+            const today = new Date();
+            const thirtyDaysAgo = new Date(today);
+            thirtyDaysAgo.setDate(today.getDate() - 29); // 29 days back + today = 30 days
+            dom.startDateFilter.value = thirtyDaysAgo.toISOString().split('T')[0];
+            dom.endDateFilter.value = today.toISOString().split('T')[0];
+
+            dom.filterType.value = 'month'; // Default to month filter
+            dom.monthFilter.classList.remove('hidden');
+            dom.startDateFilter.classList.add('hidden');
+            dom.endDateFilter.classList.add('hidden');
+        }
+
+        initializePage();
+        window.addEventListener('beforeunload', () => {
+            Object.values(unsubscribes).forEach(unsub => unsub && unsub());
+        });
+    </script>
+</body>
+</html>
