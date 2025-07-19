@@ -72,8 +72,8 @@
             transition: border-color 0.2s, box-shadow 0.2s;
         }
         .form-select, .form-input {
-             padding: 0.625rem 1rem;
-             width: 100%;
+            padding: 0.625rem 1rem;
+            width: 100%;
         }
         .form-input:focus, .form-select:focus {
             outline: none;
@@ -182,6 +182,7 @@
 
         <!-- Class Filter Buttons -->
         <div id="classFilterContainer" class="flex flex-wrap items-center gap-2 mb-4">
+            <p class="text-gray-400">Pilih kelas untuk melihat data:</p>
             <!-- Tombol filter kelas akan dimasukkan di sini oleh JavaScript -->
         </div>
 
@@ -228,27 +229,12 @@
         // --- Firebase SDK Imports ---
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, onSnapshot, query, where, doc, Timestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-        // --- Utility Functions ---
-        function toLocalDateString(date) {
-            const year = date.getFullYear();
-            const month = String(date.getMonth() + 1).padStart(2, '0');
-            const day = String(date.getDate()).padStart(2, '0');
-            return `${year}-${month}-${day}`;
-        }
-
-        function getMonthName(monthIndex) {
-            const months = [
-                "Januari", "Februari", "Maret", "April", "Mei", "Juni",
-                "Juli", "Agustus", "September", "Oktober", "November", "Desember"
-            ];
-            return months[parseInt(monthIndex, 10)];
-        }
+        import { getFirestore, collection, onSnapshot, query, where, Timestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // --- Firebase Configuration ---
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
         const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+            // Fallback config for local testing
             apiKey: "AIzaSyBzvOsp5EVnzTI8Kbew9nXSXXLpakBD6Ec",
             authDomain: "ltq-hn.firebaseapp.com",
             projectId: "ltq-hn",
@@ -256,7 +242,6 @@
             messagingSenderId: "542731528480",
             appId: "1:542731528480:web:15203f68716ed2e3dacf45"
         };
-        // Fixed: Use __initial_auth_token directly
         const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
         // --- Initialize Firebase ---
@@ -271,8 +256,8 @@
         let allMentors = [];
         let allHalaqohGroups = [];
         let allClasses = [];
-        let compiledRecapData = [];
-        let activeClassFilter = 'all';
+        let compiledRecapData = []; // This will hold compiled data for ALL students for the selected time range
+        let activeClassFilter = null; // No default class filter
 
         // --- DOM Elements ---
         const dom = {
@@ -307,6 +292,9 @@
 
         // --- Data Fetching and Processing ---
 
+        /**
+         * Preloads essential static data like students, mentors, classes, etc.
+         */
         function preloadData() {
             const collectionsToLoad = {
                 students: 'students',
@@ -315,29 +303,35 @@
                 classes: 'classes',
             };
 
-            let dataLoadedCount = 0;
-            const totalCollections = Object.keys(collectionsToLoad).length;
-
-            Object.entries(collectionsToLoad).forEach(([stateKey, collectionName]) => {
-                const q = query(collection(db, 'artifacts', appId, 'public', 'data', collectionName));
-                unsubscribes[stateKey] = onSnapshot(q, (snapshot) => {
-                    const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                    if (stateKey === 'students') allStudents = data;
-                    if (stateKey === 'mentors') allMentors = data;
-                    if (stateKey === 'halaqohGroups') allHalaqohGroups = data;
-                    if (stateKey === 'classes') {
-                        allClasses = data;
-                        populateClassFilterButtons();
-                    }
-                    dataLoadedCount++;
-                    if (dataLoadedCount === totalCollections) {
-                        populateMonthFilter();
-                        fetchRecapData(); // Initial fetch
-                    }
+            const promises = Object.entries(collectionsToLoad).map(([stateKey, collectionName]) => {
+                return new Promise((resolve) => {
+                    const q = query(collection(db, 'artifacts', appId, 'public', 'data', collectionName));
+                    unsubscribes[stateKey] = onSnapshot(q, (snapshot) => {
+                        const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                        if (stateKey === 'students') allStudents = data;
+                        if (stateKey === 'mentors') allMentors = data;
+                        if (stateKey === 'halaqohGroups') allHalaqohGroups = data;
+                        if (stateKey === 'classes') {
+                            allClasses = data;
+                            populateClassFilterButtons();
+                        }
+                        resolve();
+                    });
                 });
+            });
+
+            Promise.all(promises).then(() => {
+                console.log("All essential data preloaded.");
+                populateMonthFilter();
+                // Initially, don't fetch recap data. Show empty state until a class is selected.
+                dom.rekapLoader.style.display = 'none';
+                dom.emptyState.classList.remove('hidden');
             });
         }
 
+        /**
+         * Fetches submission data for the selected date range and triggers compilation.
+         */
         function fetchRecapData() {
             let startDate, endDate;
             const filterType = dom.filterType.value;
@@ -365,15 +359,20 @@
             if (unsubscribes.submissions) unsubscribes.submissions();
             unsubscribes.submissions = onSnapshot(q, (snapshot) => {
                 const submissions = snapshot.docs.map(doc => doc.data());
-                compileData(submissions, startDate, endDate);
+                compileAllData(submissions, startDate, endDate);
             }, (error) => {
                 console.error("Error fetching submissions:", error);
-                compileData([], startDate, endDate);
+                showToast("Gagal mengambil data submisi.", true);
+                compileAllData([], startDate, endDate); // Compile with empty data to clear view
             });
         }
-
-        function compileData(submissions, periodStartDate, periodEndDate) {
-            compiledRecapData = [];
+        
+        /**
+         * Compiles recap data for ALL students based on submissions in a period.
+         * This populates the master `compiledRecapData` array.
+         */
+        function compileAllData(submissions, periodStartDate, periodEndDate) {
+            compiledRecapData = []; // Reset the master data array
 
             for (const student of allStudents) {
                 const studentSubmissions = submissions.filter(s => s.namaSantri1 === student.name || s.namaSantri2 === student.name || s.namaSantri3 === student.name);
@@ -393,9 +392,17 @@
                     }
                 });
 
-                // Calculate average Itqon and Tajwid scores
-                const avgItqon = itqonScores.length > 0 ? (itqonScores.reduce((sum, score) => sum + score, 0) / itqonScores.length).toFixed(2) : '-';
-                const avgTajwid = tajwidScores.length > 0 ? (tajwidScores.reduce((sum, score) => sum + score, 0) / tajwidScores.length).toFixed(2) : '-';
+                const avgItqon = itqonScores.length > 0 ? (itqonScores.reduce((sum, score) => sum + score, 0) / itqonScores.length) : '-';
+                const avgTajwid = tajwidScores.length > 0 ? (tajwidScores.reduce((sum, score) => sum + score, 0) / tajwidScores.length) : '-';
+                
+                const minScore = 40; 
+                const maxScore = 90;
+
+                const scaledItqon = avgItqon !== '-' ? (((avgItqon - minScore) / (maxScore - minScore)) * 100) : '-';
+                const scaledTajwid = avgTajwid !== '-' ? (((avgTajwid - minScore) / (maxScore - minScore)) * 100) : '-';
+
+                const finalItqon = scaledItqon !== '-' ? (avgItqon === maxScore ? 100 : scaledItqon.toFixed(2)) : '-';
+                const finalTajwid = scaledTajwid !== '-' ? (avgTajwid === maxScore ? 100 : scaledTajwid.toFixed(2)) : '-';
                 
                 const group = allHalaqohGroups.find(g => g.studentIds?.includes(student.id));
                 const mentor = allMentors.find(m => m.id === group?.mentorId);
@@ -404,32 +411,39 @@
                     namaSantri: student.name,
                     kelas: student.class || '-',
                     namaPembimbing: mentor?.name || '-',
-                    nilaiItqon: avgItqon,
-                    nilaiTajwid: avgTajwid,
+                    nilaiItqon: finalItqon,
+                    nilaiTajwid: finalTajwid,
                 });
             }
+            // After compiling all data, render the table (which will apply the active class filter)
             renderTable();
         }
 
+        /**
+         * Renders the table view by filtering the master `compiledRecapData`.
+         * Also controls the state of the loader, empty state, and export button.
+         */
         function renderTable() {
             dom.rekapLoader.style.display = 'none';
             dom.rekapTableBody.innerHTML = '';
 
-            let dataToRender = compiledRecapData;
-            if (activeClassFilter !== 'all') {
-                dataToRender = compiledRecapData.filter(data => data.kelas === activeClassFilter);
-            }
+            // The export button is enabled if ANY data exists for the selected period.
+            dom.exportBtn.disabled = compiledRecapData.length === 0;
 
-            if (dataToRender.length === 0) {
+            // Filter the master data list for the specific class to be displayed.
+            const dataToRender = activeClassFilter
+                ? compiledRecapData.filter(d => d.kelas === activeClassFilter)
+                : []; // If no class is selected, show nothing.
+
+            if (!activeClassFilter || dataToRender.length === 0) {
                 dom.emptyState.classList.remove('hidden');
                 dom.rekapTable.classList.add('hidden');
-                dom.exportBtn.disabled = true;
+                // The export button state is already handled above.
                 return;
             }
 
             dom.emptyState.classList.add('hidden');
             dom.rekapTable.classList.remove('hidden');
-            dom.exportBtn.disabled = false;
 
             dataToRender.sort((a, b) => a.namaSantri.localeCompare(b.namaSantri));
             
@@ -462,19 +476,12 @@
                 option.textContent = `${months[month]} ${year}`;
                 dom.monthFilter.appendChild(option);
             }
-            // Set default to current month
             dom.monthFilter.value = `${now.getFullYear()}-${now.getMonth() + 1}`;
         }
         
         function populateClassFilterButtons() {
             const container = dom.classFilterContainer;
-            container.innerHTML = '';
-
-            const allBtn = document.createElement('button');
-            allBtn.className = 'btn btn-secondary class-filter-btn active';
-            allBtn.textContent = 'Semua Kelas';
-            allBtn.dataset.className = 'all';
-            container.appendChild(allBtn);
+            container.innerHTML = '<p class="text-gray-400">Pilih kelas untuk melihat data:</p>'; 
 
             allClasses.sort((a, b) => a.name.localeCompare(b.name)).forEach(cls => {
                 const btn = document.createElement('button');
@@ -485,9 +492,17 @@
             });
         }
 
+        /**
+         * Exports the compiled data for ALL classes to an Excel file.
+         */
         function exportToExcel() {
+            if (compiledRecapData.length === 0) {
+                showToast("Tidak ada data untuk diekspor pada periode ini.", true);
+                return;
+            }
+
+            // Use the already-compiled global data.
             const dataToExport = [...compiledRecapData];
-            if (dataToExport.length === 0) return;
 
             dataToExport.sort((a, b) => {
                 if (a.kelas < b.kelas) return -1;
@@ -496,7 +511,6 @@
             });
 
             const wb = XLSX.utils.book_new();
-
             const dataByClass = {};
             for (const studentData of dataToExport) {
                 const className = studentData.kelas || 'Tanpa Kelas';
@@ -507,16 +521,13 @@
             }
 
             const headers = ["No", "Nama Santri", "Kelas", "Nama Pembimbing", "Nilai Itqon", "Nilai Tajwid"];
-            
             const sortedClasses = Object.keys(dataByClass).sort();
 
             for (const className of sortedClasses) {
                 const classData = dataByClass[className];
-                
                 const rows = classData.map((d, i) => [
                     i + 1, d.namaSantri, d.kelas, d.namaPembimbing, d.nilaiItqon, d.nilaiTajwid
                 ]);
-
                 const sheetData = [headers, ...rows];
                 const ws = XLSX.utils.aoa_to_sheet(sheetData);
                 XLSX.utils.book_append_sheet(wb, ws, className);
@@ -534,22 +545,26 @@
             }
 
             XLSX.writeFile(wb, fileName);
+            showToast("Ekspor berhasil!", false);
         }
 
-        // --- Toast Notification Function ---
         function showToast(message, isError = false) {
             dom.toastMessage.textContent = message;
             dom.toast.className = `toast ${isError ? 'bg-red-600' : 'bg-green-600'}`;
-            
             dom.toast.classList.add('show');
-            
             setTimeout(() => {
                 dom.toast.classList.remove('show');
             }, 3000);
         }
 
-
         // --- Event Listeners ---
+        function handleFilterChange() {
+            // Only fetch data if a class has been selected.
+            if (activeClassFilter) {
+                fetchRecapData();
+            }
+        }
+
         dom.filterType.addEventListener('change', () => {
             if (dom.filterType.value === 'month') {
                 dom.monthFilter.classList.remove('hidden');
@@ -560,41 +575,54 @@
                 dom.startDateFilter.classList.remove('hidden');
                 dom.endDateFilter.classList.remove('hidden');
             }
-            fetchRecapData(); // Re-fetch data based on new filter type
+            handleFilterChange();
         });
 
-        dom.monthFilter.addEventListener('change', fetchRecapData);
-        dom.startDateFilter.addEventListener('change', fetchRecapData);
-        dom.endDateFilter.addEventListener('change', fetchRecapData);
+        dom.monthFilter.addEventListener('change', handleFilterChange);
+        dom.startDateFilter.addEventListener('change', handleFilterChange);
+        dom.endDateFilter.addEventListener('change', handleFilterChange);
+
         dom.exportBtn.addEventListener('click', exportToExcel);
+
         dom.classFilterContainer.addEventListener('click', (e) => {
             const target = e.target.closest('.class-filter-btn');
             if (!target) return;
 
+            const previouslyActiveClass = activeClassFilter;
             dom.classFilterContainer.querySelectorAll('.class-filter-btn').forEach(btn => btn.classList.remove('active'));
             target.classList.add('active');
-
             activeClassFilter = target.dataset.className;
-            renderTable();
+
+            // If this is the first time a class is selected, we need to fetch data.
+            // Otherwise, we just re-render the already compiled data.
+            if (!previouslyActiveClass) {
+                fetchRecapData();
+            } else {
+                renderTable();
+            }
         });
 
         // --- Initial Setup ---
         function initializePage() {
             lucide.createIcons();
-            // Set default date range to last 30 days
             const today = new Date();
             const thirtyDaysAgo = new Date(today);
-            thirtyDaysAgo.setDate(today.getDate() - 29); // 29 days back + today = 30 days
+            thirtyDaysAgo.setDate(today.getDate() - 29);
             dom.startDateFilter.value = thirtyDaysAgo.toISOString().split('T')[0];
             dom.endDateFilter.value = today.toISOString().split('T')[0];
 
-            dom.filterType.value = 'month'; // Default to month filter
+            dom.filterType.value = 'month';
             dom.monthFilter.classList.remove('hidden');
             dom.startDateFilter.classList.add('hidden');
             dom.endDateFilter.classList.add('hidden');
+
+            dom.rekapTable.classList.add('hidden');
+            dom.rekapLoader.style.display = 'none';
+            dom.emptyState.classList.remove('hidden');
         }
 
         initializePage();
+
         window.addEventListener('beforeunload', () => {
             Object.values(unsubscribes).forEach(unsub => unsub && unsub());
         });
